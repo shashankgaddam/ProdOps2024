@@ -1,14 +1,20 @@
 from flask import Flask, request, jsonify, Blueprint
 import openai
 import os
+from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 main = Blueprint('main', __name__)
 app.config['UPLOAD_FOLDER'] = 'uploaded_transcripts'
 app.config['INSIGHTS_FILE'] = 'insights.txt'  # File to store unique insights
 
-openai.api_key = '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'
+api_key = os.getenv('API_KEY')
+
+openai.api_key = api_key
 
 def load_existing_insights():
     try:
