@@ -1,91 +1,71 @@
-from flask import Flask, request, jsonify
-import spacy
+from flask import Flask, request, jsonify, Blueprint
 import openai
 import os
-
-UPLOAD_FOLDER = 'uploaded_transcripts'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-nlp = spacy.load("en_core_web_sm")
+main = Blueprint('main', __name__)
+app.config['UPLOAD_FOLDER'] = 'uploaded_transcripts'
+app.config['INSIGHTS_FILE'] = 'insights.txt'  # File to store unique insights
 
-# Load OpenAI API key
-openai.api_key = 'your_openai_api_key'
+openai.api_key = 'sk-PHt8_jSsZKcyCdpDvY0DZDxYUglQJo7DiTeIwI1Wv0T3BlbkFJ-TegYJyUDYkXEP_DTZH0w4ca9PWbsOHTzVJhXMwBoA'
 
-def categorize_text(extracted_text):
-    categories = {
-        'roadmap': [],
-        'prd': [],
-        'ux_design': [],
-        'user_stories': []
-    }
-    
-    # Define keywords or phrases for each category
-    keywords = {
-        'roadmap': ['roadmap', 'timeline', 'milestone'],
-        'prd': ['product requirement', 'PRD', 'feature'],
-        'ux_design': ['UX design', 'interface', 'wireframe', 'prototype'],
-        'user_stories': ['user story', 'story', 'acceptance criteria', 'AC']
-    }
+def load_existing_insights():
+    try:
+        with open(app.config['INSIGHTS_FILE'], 'r') as file:
+            existing_insights = set(file.read().splitlines())
+        return existing_insights
+    except FileNotFoundError:
+        return set()
 
-    # Categorize based on keywords
-    for key, value in keywords.items():
-        for word in value:
-            if word in extracted_text.lower():
-                categories[key].append(extracted_text)
-                break  # Avoid placing the same text in multiple categories
+def save_insights(new_insights):
+    with open(app.config['INSIGHTS_FILE'], 'a') as file:
+        for insight in new_insights:
+            file.write(f"{insight}\n")
 
-    return categories
+def filter_insights(new_insights):
+    existing_insights = load_existing_insights()
+    unique_insights = set(new_insights) - existing_insights
+    return list(unique_insights)
 
-@app.route('/process-transcript', methods=['POST'])
-def process_transcript():
-    file = request.files['transcript']
-    transcript_text = file.read().decode('utf-8')
+def extract_insights(transcript):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Extract the top three pain points, the ideal product solutions, and desired outcomes from the customer interview."},
+                {"role": "user", "content": transcript}
+            ]
+        )
+        insights = response.choices[0].message['content'].split('\n')  # Assuming insights are separated by new lines
+        return insights
+    except Exception as e:
+        print(f"Error processing transcript: {e}")
+        return []
 
-    # Using SpaCy to process text
-    doc = nlp(transcript_text)
-    extracted_text = ' '.join([sent.text for sent in doc.sents])
-
-    # Using OpenAI for more complex extraction if needed
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=f"Extract key points and categorize into roadmap, PRD, UX design, and user stories: {transcript_text}",
-        max_tokens=150
-    )
-
-    extracted_info = response.choices[0].text.strip()
-
-    # Categorize the extracted text
-    categorized_info = categorize_text(extracted_info)
-
-    return jsonify(categorized_info)
-
-@app.route('/upload-and-process', methods=['POST'])
+@main.route('/upload-and-process', methods=['POST'])
 def upload_and_process():
-    file = request.files['transcript']
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(file_path)
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
 
-    transcript_text = file.read().decode('utf-8')
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
 
-    # Process the transcript to extract and categorize
-    doc = nlp(transcript_text)
-    extracted_text = ' '.join([sent.text for sent in doc.sents])
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
 
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=f"Extract key points and categorize into roadmap, PRD, UX design, and user stories: {transcript_text}",
-        max_tokens=150
-    )
+    with open(filepath, 'r', encoding='utf-8') as file:
+        transcript = file.read()
 
-    extracted_info = response.choices[0].text.strip()
-    categorized_info = categorize_text(extracted_info)
-
-    return jsonify(categorized_info)
-
-if __name__ == '__main__':
-    app.run(debug=True)
-
+    extracted_insights = extract_insights(transcript)
+    unique_insights = filter_insights(extracted_insights)
+    if unique_insights:
+        save_insights(unique_insights)
+        return jsonify({'unique_insights': unique_insights})
+    else:
+        return jsonify({'message': 'No new unique insights found'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
