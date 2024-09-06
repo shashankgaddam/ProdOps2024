@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import './App.css';
-import FeatureDashboard from '../FeatureDashboard';
-import TranscribeFeature from '../TranscribeFeature';
+import './MainPage.css';
+import FeatureDashboard from './FeatureDashboard';
+import TranscribeFeature from './TranscribeFeature';
 
-function TranscriptUploader() {
+function TranscriptUploader({fileUploaded}) {
   const [selectedFile, setSelectedFile] = useState(null);
 
   const handleFileChange = (event) => {
@@ -12,7 +12,8 @@ function TranscriptUploader() {
 
   const handleFileUpload = () => {
     if (selectedFile) {
-      console.log('Uploading file:', selectedFile.name);
+      console.log('Uploading file:', selectedFile);
+      fileUploaded(selectedFile);
     } else {
       console.log('No file selected');
     }
@@ -38,7 +39,13 @@ function TranscriptUploader() {
   );
 }
 
-function App() {
+function MainPage() {
+
+  const [file, setFile] = useState(null);
+
+  function onFileUpload(newFile) {
+    setFile(newFile)
+  }
   return (
     <div className="App">
       <header className="app-header">
@@ -47,10 +54,10 @@ function App() {
       <div className="container">
         <main className="main-content">
           <div className="combined-box">
-            <TranscriptUploader />
+            <TranscriptUploader fileUploaded={onFileUpload} />
             <TranscribeFeature />
           </div>
-          <FeatureDashboard />
+          <FeatureDashboard file={file} />
         </main>
       </div>
       <footer className="app-footer">
@@ -60,4 +67,4 @@ function App() {
   );
 }
 
-export default App;
+export default MainPage;
