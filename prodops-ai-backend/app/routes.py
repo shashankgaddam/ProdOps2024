@@ -1,77 +1,72 @@
 from flask import Flask, request, jsonify, Blueprint
 import openai
 import os
-from dotenv import load_dotenv
-from werkzeug.utils import secure_filename
-
-# Load environment variables from .env file
-load_dotenv()
+from flask_cors import CORS
 
 app = Flask(__name__)
 main = Blueprint('main', __name__)
-app.config['UPLOAD_FOLDER'] = 'uploaded_transcripts'
-app.config['INSIGHTS_FILE'] = 'insights.txt'  # File to store unique insights
+CORS(main, supports_credentials=True)
+# Set your OpenAI API key
+# openai.api_key = '';
 
-api_key = os.getenv('API_KEY')
+@main.route('/')
+def index():
+    return "Welcome to the PRD Generator API!"
 
-openai.api_key = api_key
-
-def load_existing_insights():
-    try:
-        with open(app.config['INSIGHTS_FILE'], 'r') as file:
-            existing_insights = set(file.read().splitlines())
-        return existing_insights
-    except FileNotFoundError:
-        return set()
-
-def save_insights(new_insights):
-    with open(app.config['INSIGHTS_FILE'], 'a') as file:
-        for insight in new_insights:
-            file.write(f"{insight}\n")
-
-def filter_insights(new_insights):
-    existing_insights = load_existing_insights()
-    unique_insights = set(new_insights) - existing_insights
-    return list(unique_insights)
-
-def extract_insights(transcript):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Extract the top three pain points, the ideal product solutions, and desired outcomes from the customer interview."},
-                {"role": "user", "content": transcript}
-            ]
-        )
-        insights = response.choices[0].message['content'].split('\n')  # Assuming insights are separated by new lines
-        return insights
-    except Exception as e:
-        print(f"Error processing transcript: {e}")
-        return []
-
-@main.route('/upload-and-process', methods=['POST'])
-def upload_and_process():
+@main.route('/upload-transcript', methods=['POST'])
+def upload_transcript():
+    # Check if a file is part of the request
     if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
+        return jsonify({'error': 'No file part in the request'}), 400
+    
     file = request.files['file']
+    
     if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
+        return jsonify({'error': 'No selected file'}), 400
 
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+    # Read the transcript from the file
+    transcript = file.read().decode('utf-8')
 
-    with open(filepath, 'r', encoding='utf-8') as file:
-        transcript = file.read()
+    # Generate the PRD using OpenAI
+    prd_content = generate_prd_from_transcript(transcript)
 
-    extracted_insights = extract_insights(transcript)
-    unique_insights = filter_insights(extracted_insights)
-    if unique_insights:
-        save_insights(unique_insights)
-        return jsonify({'unique_insights': unique_insights})
-    else:
-        return jsonify({'message': 'No new unique insights found'}), 200
+    return jsonify({'prd': prd_content})
 
-if __name__ == '__main__':
-    app.run(debug=True)
+def generate_prd_from_transcript(transcript):
+    # Define a prompt that generates PRD content from the transcript
+    prompt = f"""
+    Based on the following customer interview transcript, generate a detailed Product Requirements Document (PRD):
+
+    {transcript}
+
+    The PRD should include the following sections:
+    - Purpose
+    - Executive Summary
+    - Key Problems Identified
+    - Objectives & Goals
+    - Key Features
+    - User Stories
+    - Acceptance Criteria
+    - Performance Metrics
+    - Risks & Mitigations
+    - Timeline
+    - Conclusion
+
+    Be as detailed as possible.
+    """
+
+    # Send the transcript to the OpenAI API for PRD generation using gpt-3.5-turbo or gpt-4
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",  # or "gpt-4" if you have access
+        messages=[
+            {"role": "system", "content": "You are an AI that generates PRD documents based on transcripts."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=500  # Adjust token length as needed
+    )
+
+    # Get the PRD content from the OpenAI response
+    prd_content = response['choices'][0]['message']['content'].strip()
+
+    return prd_content
+
